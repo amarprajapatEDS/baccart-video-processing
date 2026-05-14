@@ -6,6 +6,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+from .errors import UnrecoverableSourceError
 from .stream import StreamFrame, StreamHealth, StreamReader
 
 
@@ -51,6 +52,12 @@ class StreamWatchdog:
                 self._last_health = StreamHealth.HEALTHY
                 self._backoff = self.policy.reconnect_backoff_s
                 log.info("stream connected")
+                return
+            except UnrecoverableSourceError as e:
+                log.error("unrecoverable source error — not retrying:\n%s", e)
+                self._finished = True
+                self._last_health = StreamHealth.DISCONNECTED
+                self.reader = None
                 return
             except Exception as e:
                 log.warning("stream connect failed (%s); backing off %.1fs", e, self._backoff)

@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
+from .errors import UnrecoverableSourceError
 from .stream import StreamReader
 from .webp_reader import WebPFrameReader
 
@@ -58,8 +59,37 @@ def build_source(
     loop: bool = True,
     use_native_durations: bool = True,
 ):
-    """Pick and construct the right reader for a given source string."""
+    """Pick and construct the right reader for a given source string.
+
+    Raises:
+        UnrecoverableSourceError: when a local file path doesn't exist or
+            points to a directory — the watchdog uses this to stop retrying.
+    """
     is_url = _is_url(source)
+
+    if not is_url:
+        p = Path(source).expanduser()
+        if not p.exists():
+            cwd = Path.cwd()
+            raise UnrecoverableSourceError(
+                f"source file not found: {p}\n"
+                f"  resolved to:  {p.resolve() if p.parent.exists() else p}\n"
+                f"  current dir:  {cwd}\n"
+                f"  hint: drop your .webp/.mp4 at the path you passed via --source, "
+                f"or pass a full path."
+            )
+        if p.is_dir():
+            try:
+                listed = ", ".join(sorted(c.name for c in p.iterdir())[:8]) or "(empty)"
+            except OSError:
+                listed = "?"
+            raise UnrecoverableSourceError(
+                f"source is a directory, expected a video file: {p}\n"
+                f"  directory contains: {listed}\n"
+                f"  hint: point --source at the file inside, e.g. {p}/clip.webp"
+            )
+        source = str(p)
+
     ext = _suffix(source)
     is_webp = ext == WEBP_EXT
     is_live_proto = source.startswith(LIVE_SCHEMES)

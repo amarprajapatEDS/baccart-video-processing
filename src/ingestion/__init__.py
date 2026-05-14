@@ -1,3 +1,4 @@
+from .errors import UnrecoverableSourceError
 from .stream import StreamReader, StreamFrame, StreamHealth
 from .watchdog import StreamWatchdog
 from .webp_reader import WebPFrameReader
@@ -9,6 +10,7 @@ __all__ = [
     "StreamHealth",
     "StreamWatchdog",
     "WebPFrameReader",
+    "UnrecoverableSourceError",
     "build_source",
     "describe_source",
 ]

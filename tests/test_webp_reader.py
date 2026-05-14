@@ -6,7 +6,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.ingestion import WebPFrameReader, build_source, describe_source
+from src.ingestion import (
+    UnrecoverableSourceError,
+    WebPFrameReader,
+    build_source,
+    describe_source,
+)
+from src.ingestion.watchdog import StreamWatchdog, WatchdogPolicy
 
 
 def _make_animated_webp(path: Path, n_frames: int = 6, size=(160, 120), duration_ms: int = 50) -> None:
@@ -100,6 +106,39 @@ def test_describe_source_classifies_inputs():
     assert describe_source("/tmp/clip.mp4") == "file"
 
 
+def test_build_source_missing_local_file_raises_unrecoverable():
+    raised = False
+    try:
+        build_source("/tmp/__definitely_does_not_exist__.webp")
+    except UnrecoverableSourceError as e:
+        raised = True
+        msg = str(e)
+        assert "not found" in msg
+        assert "hint" in msg
+    assert raised, "expected UnrecoverableSourceError for missing local file"
+
+
+def test_build_source_directory_as_source_raises_unrecoverable():
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        raised = False
+        try:
+            build_source(d)
+        except UnrecoverableSourceError as e:
+            raised = True
+            assert "directory" in str(e)
+        assert raised, "expected UnrecoverableSourceError for directory source"
+
+
+def test_watchdog_stops_immediately_on_unrecoverable_source():
+    def factory():
+        raise UnrecoverableSourceError("nope")
+    wd = StreamWatchdog(factory=factory, policy=WatchdogPolicy())
+    assert wd.finished is True
+    assert wd.read() is None
+    wd.release()
+
+
 if __name__ == "__main__":
     test_webp_reader_decodes_all_frames_in_order()
     test_webp_reader_loops_when_loop_true()
@@ -107,4 +146,7 @@ if __name__ == "__main__":
     test_webp_reader_paces_at_target_fps()
     test_source_factory_routes_webp_to_webp_reader()
     test_describe_source_classifies_inputs()
+    test_build_source_missing_local_file_raises_unrecoverable()
+    test_build_source_directory_as_source_raises_unrecoverable()
+    test_watchdog_stops_immediately_on_unrecoverable_source()
     print("OK")
