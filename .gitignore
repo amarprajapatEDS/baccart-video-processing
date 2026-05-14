@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+
+# Test / type-checker caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+.coverage.*
+
+# Pipeline runtime artifacts
+runs/
+logs/
+archive/
+snapshots/
+weights/*.pt
+weights/*.engine
+weights/*.onnx
+weights/*.bin
+annotated_output.mp4
+events.jsonl
+
+# Claude session state
+.claude/
+.claude-code/
