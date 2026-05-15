@@ -255,6 +255,22 @@ class BaccaratPipeline:
             slot_labels[slot] = pred.label
             slot_confs[slot] = pred.conf
 
+        # Detection-only fallback: when the classifier has no weights, we
+        # cannot recognize rank/suit, but the detector still produces a
+        # bounding box with a real confidence. Propagate that confidence
+        # under a "card" placeholder label so the FSM safety gates can
+        # still pass and a full IDLE → DEALING → RESULT_STABLE → ROUND_END
+        # cycle is visible. Card values stay null in the emitted JSON so
+        # downstream consumers can tell the difference between
+        # "card detected, value unknown" and "card detected, value=8H".
+        if not self.classifier.ready:
+            for slot, assignment in slot_assignments.items():
+                if assignment is None:
+                    continue
+                if slot_labels[slot] is None:
+                    slot_labels[slot] = "card"
+                    slot_confs[slot] = float(assignment.detection.conf)
+
         stable_flags = self.stability.update(slot_centers)
         active_slots: Set[str] = {s for s, c in slot_centers.items() if c is not None}
         stable_slots: Set[str] = {s for s, ok in stable_flags.items() if ok}
@@ -355,16 +371,27 @@ class BaccaratPipeline:
                 all_stable=bool(active and active.issubset(t.observation.stable_slots)),
             )
             if gate.decision.value == "PUBLISH":
+                # In detection-only mode (no classifier weights) we have to
+                # emit val=null since we don't actually know rank/suit. The
+                # internal 'card' placeholder is just for FSM progression.
+                emit_labels = consensus_labels
+                if not self.classifier.ready:
+                    emit_labels = {
+                        s: (None if v == "card" else v)
+                        for s, v in consensus_labels.items()
+                    }
                 payload = self.emitter.emit_result_stable(
-                    slot_labels=consensus_labels,
+                    slot_labels=emit_labels,
                     slot_confs=consensus_confs,
                     metrics=metrics,
                 )
                 self.async_log.write_event(payload)
-                self.overlay.push_event(
-                    "RESULT STABLE", color=COLOR_GOLD,
-                    subtitle=self._fmt_cards_summary(consensus_labels),
-                )
+                if self.classifier.ready:
+                    subtitle = self._fmt_cards_summary(consensus_labels)
+                else:
+                    detected = sum(1 for v in consensus_labels.values() if v)
+                    subtitle = f"{detected} cards detected (rank/suit unknown — no classifier weights)"
+                self.overlay.push_event("RESULT STABLE", color=COLOR_GOLD, subtitle=subtitle)
             else:
                 payload = self.emitter.emit_simple(
                     "STATE_UNCERTAIN",
@@ -414,6 +441,12 @@ class BaccaratPipeline:
         return "  ".join(parts) if parts else "no cards"
 
     def _maybe_harvest(self, min_card_conf: float, avg_drift_px: float, frame_shape) -> None:
+        # In detection-only mode the classical detector's bboxes naturally
+        # jitter a few px per frame on the same physical card; that's not a
+        # data-quality failure, just normal contour-detection noise. Skip
+        # both harvest triggers when we have no real rank/suit confidence.
+        if not self.classifier.ready:
+            return
         if 0.0 < min_card_conf < self.cfg.gating.harvest_card_conf:
             self.harvester.trigger(HarvestReason.LOW_CONF, (frame_shape[1], frame_shape[0]))
         elif avg_drift_px > self.cfg.gating.harvest_drift_px:
