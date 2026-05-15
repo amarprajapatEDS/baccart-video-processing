@@ -27,6 +27,7 @@ from src.ingestion.stream import StreamHealth
 from src.motion import MotionDetector
 from src.preprocessing import crop_roi, enhance_frame, normalize_resolution
 from src.stability import LabelConsensus, StabilityTracker
+from src.timer_watcher import TimerEvent, TimerPhase, TimerWatcher
 from src.visualization import OverlayRenderer, RenderContext, build_display
 from src.visualization.overlay import (
     COLOR_BAD, COLOR_GOLD, COLOR_OK, COLOR_PLAYER, COLOR_WARN,
@@ -94,6 +95,21 @@ class BaccaratPipeline:
         )
         self.slot_mapper = SlotMapper(rois=cfg.rois, slot_names=self.slots, min_iou=0.10)
         self.motion = MotionDetector()
+        self.timer_watcher: Optional[TimerWatcher] = None
+        if cfg.fsm.use_timer:
+            if "timer" not in cfg.rois:
+                log.warning("--use-timer requested but no 'timer' ROI is configured; ignoring")
+            else:
+                self.timer_watcher = TimerWatcher(
+                    motion_threshold=cfg.fsm.timer_motion_threshold,
+                    active_dwell_s=cfg.fsm.timer_active_dwell_s,
+                    idle_dwell_s=cfg.fsm.timer_idle_dwell_s,
+                    fps_estimate=cfg.ingestion.target_fps,
+                )
+                log.info(
+                    "timer-based round detection ENABLED (ROI: %s, threshold=%.4f)",
+                    cfg.rois["timer"], cfg.fsm.timer_motion_threshold,
+                )
         self.stability = StabilityTracker(
             drift_px=cfg.stability.drift_threshold_px,
             stable_frames=cfg.stability.stable_frames,
@@ -199,6 +215,13 @@ class BaccaratPipeline:
         shoe_motion = self.motion.has_motion("shoe", shoe_crop)
         cleanup_motion = self.motion.has_motion("cleanup", cleanup_crop)
 
+        timer_phase = TimerPhase.UNKNOWN
+        timer_motion_value = 0.0
+        timer_event: Optional[TimerEvent] = None
+        if self.timer_watcher is not None and "timer" in self.cfg.rois:
+            timer_crop = crop_roi(enhanced, self.cfg.rois["timer"])
+            timer_phase, timer_event, timer_motion_value = self.timer_watcher.observe(timer_crop)
+
         if self.detector.ready:
             detections = self.detector.predict(enhanced)
         elif self.classical_detector is not None:
@@ -260,6 +283,7 @@ class BaccaratPipeline:
             min_card_conf=min_card_conf,
             avg_drift_px=avg_drift_px,
             stream_unstable=stream_unstable,
+            timer_phase_ended=(timer_event == TimerEvent.TIMER_ENDED),
             timestamp=time.monotonic(),
         )
 
@@ -294,6 +318,8 @@ class BaccaratPipeline:
             stream_health=health.value,
             vision_buffer_progress=vb_progress,
             vision_buffer_active=vb_active,
+            timer_phase=timer_phase.value,
+            timer_motion=timer_motion_value,
         )
         annotated = self.overlay.draw(enhanced, ctx)
         self.display.show(annotated)

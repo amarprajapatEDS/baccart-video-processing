@@ -1,29 +1,41 @@
 # ROI preset for Pragmatic Play "Speed Baccarat" live streams.
 #
-# Coordinates are normalized to the reference frame (1280x720): each ROI is
+# Coordinates are normalized to the reference frame (1280x720). Each ROI is
 # [x1, y1, x2, y2] in the range [0.0, 1.0].
 #
-# Reference points used to derive these:
-#   - Dealer is roughly centered horizontally, occupying y≈0.18–0.55
-#   - Shoe (card dispenser) is to the dealer's right at y≈0.45–0.78, x≈0.78–0.95
-#   - Cards land on the white tray below the dealer's hands at y≈0.62–0.80
-#   - Bottom UI overlay (PLAYER / BANKER / TIE) is below y≈0.85, ignored
+# Layout observed in the streams (confirmed by screenshots):
+#   - Dealer occupies the upper-third (y < 0.40)
+#   - PHYSICAL CARDS are dealt FACE-UP in a row across the upper-middle,
+#     at roughly y=0.40-0.58, x=0.36-0.74
+#   - SHOE (card dispenser) sits on the dealer's right at y=0.40-0.65,
+#     x=0.85-0.99
+#   - The lower half (y > 0.60) is just betting UI overlay — IGNORE for
+#     card detection
 #
 # Usage:
-#   python run.py --source samples/test.webp --roi-config configs/pragmatic_speed_baccarat.yaml
+#   python run.py --source samples/test.webm \
+#       --roi-config configs/pragmatic_speed_baccarat.yaml
 #
-# Tune the values below if your stream has a different framing.
+# If your specific stream has different framing, tune the values below and
+# refresh the web viewer; the ROIs are redrawn on every frame.
 
 rois:
-  shoe:    [0.78, 0.45, 0.95, 0.78]
-  cleanup: [0.15, 0.55, 0.85, 0.85]
+  shoe:    [0.85, 0.40, 0.99, 0.65]
+  cleanup: [0.25, 0.40, 0.75, 0.60]
 
-  # Player slots (left half of the dealing tray, fanning out leftward from center)
-  p1: [0.36, 0.62, 0.46, 0.82]
-  p2: [0.28, 0.62, 0.38, 0.82]
-  p3: [0.20, 0.62, 0.30, 0.82]
+  # Player slots — left side, fanning out leftward from center.
+  # The card nearest the center is the 1st player card (p1).
+  p1: [0.43, 0.40, 0.51, 0.58]
+  p2: [0.36, 0.40, 0.44, 0.58]
+  p3: [0.29, 0.40, 0.37, 0.58]
 
-  # Banker slots (right half of the dealing tray, fanning out rightward)
-  b1: [0.54, 0.62, 0.64, 0.82]
-  b2: [0.62, 0.62, 0.72, 0.82]
-  b3: [0.70, 0.62, 0.80, 0.82]
+  # Banker slots — right side, fanning out rightward from center.
+  b1: [0.51, 0.40, 0.59, 0.58]
+  b2: [0.59, 0.40, 0.67, 0.58]
+  b3: [0.66, 0.40, 0.74, 0.58]
+
+  # Optional: betting countdown timer area. The TimerWatcher (enabled via
+  # --use-timer) monitors small-pixel motion here to detect when the
+  # countdown ends (digits stop changing) -> ROUND_START_DETECTED.
+  # Tune this rectangle to wherever your stream renders the timer.
+  timer: [0.42, 0.02, 0.58, 0.10]

@@ -43,6 +43,16 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--roi-config", type=str, default=None,
                    help="YAML/JSON file with ROI coordinate overrides "
                         "(see configs/pragmatic_speed_baccarat.yaml)")
+    p.add_argument("--use-timer", action="store_true",
+                   help="Enable timer-based round-start detection. Watches the "
+                        "'timer' ROI for the moment the betting countdown ends "
+                        "(motion in that ROI transitions ACTIVE -> IDLE), and "
+                        "uses that as the round-start trigger in addition to "
+                        "the existing shoe-motion check.")
+    p.add_argument("--timer-threshold", type=float, default=None,
+                   help="Motion-fraction threshold for the timer ROI "
+                        "(default 0.015). Raise if the timer area has "
+                        "compression noise; lower if digits are tiny.")
     p.add_argument("--display", type=str, default=None,
                    help="comma-separated: web,window,file,none  (default: web)")
     p.add_argument("--web-host", type=str, default=None,
@@ -111,6 +121,10 @@ def main() -> int:
         logging.getLogger(__name__).info(
             "loaded %d ROI overrides from %s", len(overrides), args.roi_config
         )
+    if args.use_timer:
+        cfg.fsm.use_timer = True
+    if args.timer_threshold is not None:
+        cfg.fsm.timer_motion_threshold = args.timer_threshold
 
     if args.no_display:
         cfg.visualization.enabled = False

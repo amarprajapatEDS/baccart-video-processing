@@ -72,6 +72,8 @@ class RenderContext:
     stream_health: str
     vision_buffer_progress: float = 0.0  # 0..1 (1=done)
     vision_buffer_active: bool = False
+    timer_phase: str = "UNKNOWN"   # ACTIVE / IDLE / UNKNOWN
+    timer_motion: float = 0.0
 
 
 class OverlayRenderer:
@@ -115,7 +117,8 @@ class OverlayRenderer:
             cv2.rectangle(img, (x - 3, y - h - 4), (x + w + 3, y + baseline), COLOR_TEXT_BG, -1)
         cv2.putText(img, text, org, font, scale, color, thickness, cv2.LINE_AA)
 
-    def _draw_rois(self, img: np.ndarray, active_slots: set, stable_slots: set) -> None:
+    def _draw_rois(self, img: np.ndarray, active_slots: set, stable_slots: set,
+                   timer_phase: str = "UNKNOWN") -> None:
         import cv2
         h, w = img.shape[:2]
         for name, roi in self.rois.items():
@@ -124,6 +127,14 @@ class OverlayRenderer:
                 color, thickness = COLOR_SHOE, 1
             elif name == "cleanup":
                 color, thickness = COLOR_CLEANUP, 1
+            elif name == "timer":
+                if timer_phase == "ACTIVE":
+                    color = COLOR_GOLD
+                elif timer_phase == "IDLE":
+                    color = (110, 110, 110)
+                else:
+                    color = (180, 180, 180)
+                thickness = 2 if timer_phase == "ACTIVE" else 1
             elif name in self.player_slots:
                 color = COLOR_PLAYER
                 thickness = 2 if name in active_slots else 1
@@ -135,8 +146,10 @@ class OverlayRenderer:
 
             cv2.rectangle(img, (x1, y1), (x2, y2), color, thickness, cv2.LINE_AA)
             label = name.upper()
+            if name == "timer" and timer_phase != "UNKNOWN":
+                label = f"TIMER {timer_phase}"
             if name in active_slots and name in stable_slots:
-                label += " ✓"
+                label += " OK"
             self._put_text(img, label, (x1 + 4, y1 + 16), scale=0.45, color=color)
 
     def _draw_detections(
@@ -271,7 +284,8 @@ class OverlayRenderer:
     def draw(self, frame: np.ndarray, ctx: RenderContext) -> np.ndarray:
         canvas = frame.copy()
         if self.show_rois:
-            self._draw_rois(canvas, ctx.active_slots, ctx.stable_slots)
+            self._draw_rois(canvas, ctx.active_slots, ctx.stable_slots,
+                            timer_phase=ctx.timer_phase)
         self._draw_detections(canvas, ctx)
         if self.show_metrics:
             self._draw_header(canvas, ctx)

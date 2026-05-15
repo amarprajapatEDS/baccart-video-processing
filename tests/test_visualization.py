@@ -50,6 +50,28 @@ def test_overlay_draw_modifies_frame():
     assert not np.array_equal(out, frame), "draw should annotate the frame"
 
 
+def test_overlay_paints_timer_roi_when_phase_known():
+    """The timer ROI should be drawn in gold when ACTIVE, dim when IDLE."""
+    cfg = default_config()
+    assert "timer" in cfg.rois, "default config must include a timer ROI"
+    r = OverlayRenderer(cfg.rois, cfg.player_slots, cfg.banker_slots)
+    frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+    ctx_active = _empty_ctx()
+    ctx_active.timer_phase = "ACTIVE"
+    out_active = r.draw(frame, ctx_active)
+
+    ctx_unknown = _empty_ctx()
+    ctx_unknown.timer_phase = "UNKNOWN"
+    out_unknown = r.draw(frame, ctx_unknown)
+
+    tx1, ty1, tx2, ty2 = cfg.rois["timer"].to_pixels(1280, 720)
+    active_pixels = out_active[ty1:ty2, tx1:tx2]
+    unknown_pixels = out_unknown[ty1:ty2, tx1:tx2]
+    assert not np.array_equal(active_pixels, unknown_pixels), (
+        "timer ROI should be drawn differently in ACTIVE vs UNKNOWN phase"
+    )
+
+
 def test_overlay_draws_detection_boxes_and_labels():
     cfg = default_config()
     r = OverlayRenderer(cfg.rois, cfg.player_slots, cfg.banker_slots)
@@ -163,6 +185,7 @@ def test_mjpeg_server_serves_index_and_streams_frame():
 
 if __name__ == "__main__":
     test_overlay_draw_modifies_frame()
+    test_overlay_paints_timer_roi_when_phase_known()
     test_overlay_draws_detection_boxes_and_labels()
     test_banner_lifecycle()
     test_banner_overwrites_when_pushed_quickly()

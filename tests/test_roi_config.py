@@ -97,25 +97,27 @@ def test_missing_file_raises_file_not_found():
 
 def test_apply_overrides_merges_into_config():
     cfg = default_config()
-    original_shoe = cfg.rois["shoe"]
     overrides = load_roi_config("configs/pragmatic_speed_baccarat.yaml")
     apply_roi_overrides(cfg, overrides)
     new_shoe = cfg.rois["shoe"]
-    assert (new_shoe.x1, new_shoe.y1, new_shoe.x2, new_shoe.y2) == (0.78, 0.45, 0.95, 0.78)
-    assert (new_shoe.x1, new_shoe.y1) != (original_shoe.x1, original_shoe.y1) or \
-           (new_shoe.x2, new_shoe.y2) == (original_shoe.x2, original_shoe.y2)
-    # all required slots present
+    assert "shoe" in overrides
+    assert (new_shoe.x1, new_shoe.y1, new_shoe.x2, new_shoe.y2) == (
+        overrides["shoe"].x1, overrides["shoe"].y1,
+        overrides["shoe"].x2, overrides["shoe"].y2,
+    )
     for slot in ("shoe", "cleanup", "p1", "p2", "p3", "b1", "b2", "b3"):
         assert slot in cfg.rois
 
 
-def test_default_rois_are_in_lower_half_of_frame():
-    """The dealing-area ROIs should be below center, not over the dealer's torso."""
+def test_default_card_slots_align_with_dealing_area():
+    """Cards in Pragmatic Play / Evolution layouts are dealt face-up across
+    the upper-middle of the frame (y≈0.40-0.58), NOT over the lower betting
+    UI. Card-slot ROIs must sit in that band."""
     cfg = default_config()
     for slot in cfg.player_slots + cfg.banker_slots:
         roi = cfg.rois[slot]
-        assert roi.y1 >= 0.55, f"{slot} y1={roi.y1} is too high (should be below dealer)"
-        assert roi.y2 <= 0.90
+        assert 0.30 <= roi.y1 <= 0.45, f"{slot} y1={roi.y1} should sit in the dealing band"
+        assert 0.50 <= roi.y2 <= 0.65, f"{slot} y2={roi.y2} should sit in the dealing band"
 
 
 if __name__ == "__main__":
@@ -126,5 +128,5 @@ if __name__ == "__main__":
     test_out_of_range_coordinates_rejected()
     test_missing_file_raises_file_not_found()
     test_apply_overrides_merges_into_config()
-    test_default_rois_are_in_lower_half_of_frame()
+    test_default_card_slots_align_with_dealing_area()
     print("OK")

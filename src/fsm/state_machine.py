@@ -48,6 +48,9 @@ class FrameObservation:
     min_card_conf: float = 0.0
     avg_drift_px: float = 0.0
     stream_unstable: bool = False
+    # Optional timer-based round-start signal. True for exactly one frame
+    # when the betting countdown finishes (TimerWatcher emits TIMER_ENDED).
+    timer_phase_ended: bool = False
     timestamp: float = field(default_factory=time.monotonic)
 
 
@@ -113,6 +116,18 @@ class BaccaratFSM:
         return None
 
     def _step_idle(self, obs: FrameObservation) -> Optional[StateTransition]:
+        # Fast-path: TimerWatcher just observed the betting countdown end.
+        # This is a single-frame deterministic signal — no N-frame streak
+        # required because the underlying watcher already debounced it.
+        if obs.timer_phase_ended:
+            self._dealing_started_at = obs.timestamp
+            self._round_start_streak = 0
+            return self._maybe_transition(
+                GameState.DEALING,
+                PhaseEvent.ROUND_START_DETECTED,
+                reason="betting countdown ended (timer watcher)",
+                obs=obs,
+            )
         if obs.shoe_motion and obs.active_slots:
             self._round_start_streak += 1
         else:

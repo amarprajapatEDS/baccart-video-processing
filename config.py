@@ -100,6 +100,13 @@ class FSMConfig:
     vision_buffer_s: float = 1.5
     dealing_timeout_s: float = 60.0
     uncertainty_dwell_s: float = 3.0
+    # Timer-based round detection (optional). When True, the pipeline runs
+    # a TimerWatcher over the `timer` ROI and the FSM accepts EITHER motion
+    # detection OR a timer-ended event as the round-start trigger.
+    use_timer: bool = False
+    timer_motion_threshold: float = 0.015
+    timer_active_dwell_s: float = 1.5
+    timer_idle_dwell_s: float = 0.5
 
 
 @dataclass
@@ -159,17 +166,20 @@ class Config:
     visualization: VisualizationConfig = field(default_factory=VisualizationConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
     rois: Dict[str, ROI] = field(default_factory=lambda: {
-        # Tuned for typical Pragmatic Play / Evolution Live baccarat layouts
-        # where the dealer is centered, shoe is on the dealer's right, and
-        # cards land on a small white tray below the dealer's hands.
-        "shoe":     ROI("shoe",     0.78, 0.45, 0.95, 0.78),
-        "cleanup":  ROI("cleanup",  0.15, 0.55, 0.85, 0.85),
-        "p1":       ROI("p1",       0.36, 0.62, 0.46, 0.82),
-        "p2":       ROI("p2",       0.28, 0.62, 0.38, 0.82),
-        "p3":       ROI("p3",       0.20, 0.62, 0.30, 0.82),
-        "b1":       ROI("b1",       0.54, 0.62, 0.64, 0.82),
-        "b2":       ROI("b2",       0.62, 0.62, 0.72, 0.82),
-        "b3":       ROI("b3",       0.70, 0.62, 0.80, 0.82),
+        # Tuned for typical Pragmatic Play / Evolution Live baccarat layouts:
+        # cards are dealt FACE-UP across the upper-middle of the frame
+        # (y=0.40-0.58), NOT on the betting UI strip near the bottom.
+        # The shoe is on the dealer's right at the table level.
+        "shoe":     ROI("shoe",     0.85, 0.40, 0.99, 0.65),
+        "cleanup":  ROI("cleanup",  0.25, 0.40, 0.75, 0.60),
+        "p1":       ROI("p1",       0.43, 0.40, 0.51, 0.58),
+        "p2":       ROI("p2",       0.36, 0.40, 0.44, 0.58),
+        "p3":       ROI("p3",       0.29, 0.40, 0.37, 0.58),
+        "b1":       ROI("b1",       0.51, 0.40, 0.59, 0.58),
+        "b2":       ROI("b2",       0.59, 0.40, 0.67, 0.58),
+        "b3":       ROI("b3",       0.66, 0.40, 0.74, 0.58),
+        # Optional countdown-timer ROI for TimerWatcher (--use-timer).
+        "timer":    ROI("timer",    0.42, 0.02, 0.58, 0.10),
     })
     card_labels: List[str] = field(default_factory=all_card_labels)
     player_slots: Tuple[str, ...] = ("p1", "p2", "p3")

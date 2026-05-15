@@ -18,6 +18,7 @@ def _obs(**kwargs):
         min_card_conf=0.0,
         avg_drift_px=0.0,
         stream_unstable=False,
+        timer_phase_ended=False,
         timestamp=time.monotonic(),
     )
     defaults.update(kwargs)
@@ -34,6 +35,28 @@ def test_idle_to_dealing_requires_n_frames():
     assert t is not None
     assert t.to_state == GameState.DEALING
     assert t.event == PhaseEvent.ROUND_START_DETECTED
+
+
+def test_timer_phase_ended_triggers_round_start_immediately():
+    """One timer_phase_ended frame should jump straight to DEALING — no
+    N-frame motion streak required, since the TimerWatcher already debounced."""
+    cfg = default_config()
+    fsm = BaccaratFSM(cfg.fsm, cfg.gating)
+    t = fsm.step(_obs(timer_phase_ended=True))
+    assert t is not None
+    assert t.to_state == GameState.DEALING
+    assert t.event == PhaseEvent.ROUND_START_DETECTED
+    assert "timer" in t.reason.lower()
+
+
+def test_timer_phase_ended_ignored_when_already_dealing():
+    cfg = default_config()
+    fsm = BaccaratFSM(cfg.fsm, cfg.gating)
+    for _ in range(cfg.fsm.round_start_n):
+        fsm.step(_obs(shoe_motion=True, active_slots={"p1"}))
+    assert fsm.state == GameState.DEALING
+    t = fsm.step(_obs(timer_phase_ended=True))
+    assert t is None or t.event != PhaseEvent.ROUND_START_DETECTED
 
 
 def test_dealing_blocks_publish_until_vision_buffer_done():
