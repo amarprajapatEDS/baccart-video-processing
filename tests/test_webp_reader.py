@@ -118,6 +118,24 @@ def test_build_source_missing_local_file_raises_unrecoverable():
     assert raised, "expected UnrecoverableSourceError for missing local file"
 
 
+def test_build_source_missing_file_lists_sibling_videos_as_hint():
+    """If the user typos 'test.webp' but 'test.webm' exists, the error should
+    show 'available video files in <dir>/: test.webm' so the typo is obvious."""
+    with tempfile.TemporaryDirectory() as d:
+        existing = Path(d) / "test.webm"
+        existing.write_bytes(b"\x1aE\xdf\xa3")  # webm-ish magic
+        typo = Path(d) / "test.webp"
+        msg = ""
+        try:
+            build_source(str(typo))
+        except UnrecoverableSourceError as e:
+            msg = str(e)
+        assert "test.webm" in msg, (
+            f"expected sibling file 'test.webm' in error hint, got:\n{msg}"
+        )
+        assert "available video files" in msg
+
+
 def test_build_source_directory_as_source_raises_unrecoverable():
     import tempfile
     with tempfile.TemporaryDirectory() as d:
@@ -192,6 +210,7 @@ if __name__ == "__main__":
     test_source_factory_routes_webp_to_webp_reader()
     test_describe_source_classifies_inputs()
     test_build_source_missing_local_file_raises_unrecoverable()
+    test_build_source_missing_file_lists_sibling_videos_as_hint()
     test_build_source_directory_as_source_raises_unrecoverable()
     test_watchdog_stops_immediately_on_unrecoverable_source()
     test_watchdog_stays_healthy_under_slow_pipeline_loop()

@@ -71,11 +71,27 @@ def build_source(
         p = Path(source).expanduser()
         if not p.exists():
             cwd = Path.cwd()
+            hint_lines = []
+            parent = p.parent if p.parent != Path("") else Path(".")
+            if parent.exists() and parent.is_dir():
+                video_exts = {".webp", ".webm", ".mp4", ".mov", ".mkv", ".avi", ".m4v"}
+                try:
+                    siblings = sorted(
+                        c.name for c in parent.iterdir()
+                        if c.is_file() and c.suffix.lower() in video_exts
+                    )
+                except OSError:
+                    siblings = []
+                if siblings:
+                    hint_lines.append(
+                        f"  available video files in {parent}/: {', '.join(siblings[:8])}"
+                    )
             raise UnrecoverableSourceError(
                 f"source file not found: {p}\n"
                 f"  resolved to:  {p.resolve() if p.parent.exists() else p}\n"
                 f"  current dir:  {cwd}\n"
-                f"  hint: drop your .webp/.mp4 at the path you passed via --source, "
+                + ("\n".join(hint_lines) + "\n" if hint_lines else "")
+                + f"  hint: drop your video at the path you passed via --source, "
                 f"or pass a full path."
             )
         if p.is_dir():

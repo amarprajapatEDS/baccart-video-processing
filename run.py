@@ -10,6 +10,7 @@ import argparse
 import logging
 import sys
 from pathlib import Path
+from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -57,12 +58,40 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
+def _validate_explicit_path(label: str, path: Optional[str]) -> None:
+    if path is None:
+        return
+    p = Path(path).expanduser()
+    if not p.exists():
+        siblings_hint = ""
+        parent = p.parent if str(p.parent) else Path(".")
+        if parent.exists() and parent.is_dir():
+            try:
+                names = sorted(c.name for c in parent.iterdir() if c.is_file())[:8]
+                if names:
+                    siblings_hint = f"\n    available in {parent}/: {', '.join(names)}"
+            except OSError:
+                pass
+        sys.stderr.write(
+            f"error: {label} file not found: {p}\n"
+            f"    current dir:  {Path.cwd()}\n"
+            f"    resolved to:  {p.resolve() if p.parent.exists() else p}"
+            f"{siblings_hint}\n"
+        )
+        sys.exit(2)
+
+
 def main() -> int:
     args = parse_args()
     logging.basicConfig(
         level=getattr(logging, args.log_level),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+
+    _validate_explicit_path("--yolo-weights", args.yolo_weights)
+    _validate_explicit_path("--classifier-weights", args.classifier_weights)
+    _validate_explicit_path("--roi-config", args.roi_config)
+
     cfg = default_config()
     if args.source:
         cfg.ingestion.source = args.source
