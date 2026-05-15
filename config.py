@@ -159,14 +159,17 @@ class Config:
     visualization: VisualizationConfig = field(default_factory=VisualizationConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
     rois: Dict[str, ROI] = field(default_factory=lambda: {
-        "shoe":     ROI("shoe",     0.78, 0.10, 0.99, 0.40),
-        "cleanup":  ROI("cleanup",  0.05, 0.85, 0.95, 0.99),
-        "p1":       ROI("p1",       0.18, 0.42, 0.32, 0.70),
-        "p2":       ROI("p2",       0.32, 0.42, 0.46, 0.70),
-        "p3":       ROI("p3",       0.46, 0.42, 0.60, 0.70),
-        "b1":       ROI("b1",       0.40, 0.42, 0.54, 0.70),
-        "b2":       ROI("b2",       0.54, 0.42, 0.68, 0.70),
-        "b3":       ROI("b3",       0.68, 0.42, 0.82, 0.70),
+        # Tuned for typical Pragmatic Play / Evolution Live baccarat layouts
+        # where the dealer is centered, shoe is on the dealer's right, and
+        # cards land on a small white tray below the dealer's hands.
+        "shoe":     ROI("shoe",     0.78, 0.45, 0.95, 0.78),
+        "cleanup":  ROI("cleanup",  0.15, 0.55, 0.85, 0.85),
+        "p1":       ROI("p1",       0.36, 0.62, 0.46, 0.82),
+        "p2":       ROI("p2",       0.28, 0.62, 0.38, 0.82),
+        "p3":       ROI("p3",       0.20, 0.62, 0.30, 0.82),
+        "b1":       ROI("b1",       0.54, 0.62, 0.64, 0.82),
+        "b2":       ROI("b2",       0.62, 0.62, 0.72, 0.82),
+        "b3":       ROI("b3",       0.70, 0.62, 0.80, 0.82),
     })
     card_labels: List[str] = field(default_factory=all_card_labels)
     player_slots: Tuple[str, ...] = ("p1", "p2", "p3")
@@ -200,3 +203,68 @@ class Config:
 
 def default_config() -> Config:
     return Config()
+
+
+def load_roi_config(path: str) -> Dict[str, ROI]:
+    """Load ROI overrides from a YAML or JSON file.
+
+    Accepted shapes:
+
+        # flat dict form
+        shoe: [0.78, 0.45, 0.95, 0.78]
+        p1:   [0.36, 0.62, 0.46, 0.82]
+
+        # nested form (also accepted)
+        rois:
+          shoe: { x1: 0.78, y1: 0.45, x2: 0.95, y2: 0.78 }
+          p1:   { x1: 0.36, y1: 0.62, x2: 0.46, y2: 0.82 }
+    """
+    import json
+    from pathlib import Path as _P
+
+    p = _P(path).expanduser()
+    if not p.exists():
+        raise FileNotFoundError(f"ROI config not found: {p}")
+
+    suffix = p.suffix.lower()
+    text = p.read_text(encoding="utf-8")
+    if suffix in (".yaml", ".yml"):
+        try:
+            import yaml
+        except ImportError as e:
+            raise ImportError("PyYAML is required to load .yaml/.yml ROI configs") from e
+        data = yaml.safe_load(text) or {}
+    elif suffix == ".json":
+        data = json.loads(text) if text.strip() else {}
+    else:
+        raise ValueError(f"unsupported ROI config extension: {suffix}")
+
+    if isinstance(data, dict) and "rois" in data and isinstance(data["rois"], dict):
+        data = data["rois"]
+    if not isinstance(data, dict):
+        raise ValueError("ROI config must be a mapping of name → coords")
+
+    out: Dict[str, ROI] = {}
+    for name, value in data.items():
+        if isinstance(value, (list, tuple)) and len(value) == 4:
+            x1, y1, x2, y2 = value
+        elif isinstance(value, dict) and {"x1", "y1", "x2", "y2"} <= set(value):
+            x1, y1, x2, y2 = value["x1"], value["y1"], value["x2"], value["y2"]
+        else:
+            raise ValueError(
+                f"ROI '{name}' must be [x1,y1,x2,y2] or {{x1,y1,x2,y2}}, got: {value!r}"
+            )
+        for coord_name, c in (("x1", x1), ("y1", y1), ("x2", x2), ("y2", y2)):
+            if not isinstance(c, (int, float)) or not (0.0 <= c <= 1.0):
+                raise ValueError(f"ROI '{name}'.{coord_name}={c!r} must be a float in [0, 1]")
+        if x2 <= x1 or y2 <= y1:
+            raise ValueError(f"ROI '{name}' has zero/negative area: x2-x1={x2-x1}, y2-y1={y2-y1}")
+        out[name] = ROI(name=name, x1=float(x1), y1=float(y1), x2=float(x2), y2=float(y2))
+
+    return out
+
+
+def apply_roi_overrides(cfg: Config, overrides: Dict[str, ROI]) -> Config:
+    """Merge ROI overrides into a Config in-place and return it."""
+    cfg.rois.update(overrides)
+    return cfg

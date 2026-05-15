@@ -1,0 +1,29 @@
+# ROI preset for Pragmatic Play "Speed Baccarat" live streams.
+#
+# Coordinates are normalized to the reference frame (1280x720): each ROI is
+# [x1, y1, x2, y2] in the range [0.0, 1.0].
+#
+# Reference points used to derive these:
+#   - Dealer is roughly centered horizontally, occupying y≈0.18–0.55
+#   - Shoe (card dispenser) is to the dealer's right at y≈0.45–0.78, x≈0.78–0.95
+#   - Cards land on the white tray below the dealer's hands at y≈0.62–0.80
+#   - Bottom UI overlay (PLAYER / BANKER / TIE) is below y≈0.85, ignored
+#
+# Usage:
+#   python run.py --source samples/test.webp --roi-config configs/pragmatic_speed_baccarat.yaml
+#
+# Tune the values below if your stream has a different framing.
+
+rois:
+  shoe:    [0.78, 0.45, 0.95, 0.78]
+  cleanup: [0.15, 0.55, 0.85, 0.85]
+
+  # Player slots (left half of the dealing tray, fanning out leftward from center)
+  p1: [0.36, 0.62, 0.46, 0.82]
+  p2: [0.28, 0.62, 0.38, 0.82]
+  p3: [0.20, 0.62, 0.30, 0.82]
+
+  # Banker slots (right half of the dealing tray, fanning out rightward)
+  b1: [0.54, 0.62, 0.64, 0.82]
+  b2: [0.62, 0.62, 0.72, 0.82]
+  b3: [0.70, 0.62, 0.80, 0.82]

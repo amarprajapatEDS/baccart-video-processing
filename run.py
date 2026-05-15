@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from config import default_config
+from config import apply_roi_overrides, default_config, load_roi_config
 from src.pipeline import BaccaratPipeline
 
 
@@ -39,6 +39,9 @@ def parse_args() -> argparse.Namespace:
     p.set_defaults(webp_native=None)
     p.add_argument("--yolo-weights", type=str, default=None)
     p.add_argument("--classifier-weights", type=str, default=None)
+    p.add_argument("--roi-config", type=str, default=None,
+                   help="YAML/JSON file with ROI coordinate overrides "
+                        "(see configs/pragmatic_speed_baccarat.yaml)")
     p.add_argument("--display", type=str, default=None,
                    help="comma-separated: web,window,file,none  (default: web)")
     p.add_argument("--web-host", type=str, default=None,
@@ -73,6 +76,12 @@ def main() -> int:
         cfg.detection.model_path = args.yolo_weights
     if args.classifier_weights:
         cfg.classification.model_path = args.classifier_weights
+    if args.roi_config:
+        overrides = load_roi_config(args.roi_config)
+        apply_roi_overrides(cfg, overrides)
+        logging.getLogger(__name__).info(
+            "loaded %d ROI overrides from %s", len(overrides), args.roi_config
+        )
 
     if args.no_display:
         cfg.visualization.enabled = False

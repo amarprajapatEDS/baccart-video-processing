@@ -16,7 +16,8 @@ from config import Config
 
 from src.audit import AsyncLogger, FailureHarvester, HarvestReason, Telemetry
 from src.classification import CardClassifier
-from src.detection import CardDetector, SlotMapper
+from src.detection import CardDetector, ClassicalCardDetector, SlotMapper
+from config import ROI
 from src.events import EventEmitter, FileSink, SafetyGates, StdoutSink
 from src.events.schemas import MetricsBlock
 from src.fsm import BaccaratFSM, FrameObservation, GameState, PhaseEvent
@@ -73,6 +74,14 @@ class BaccaratPipeline:
             device=cfg.detection.device,
             precision=cfg.detection.precision,
         )
+        self.classical_detector: Optional[ClassicalCardDetector] = None
+        if not self.detector.ready:
+            log.warning(
+                "YOLO weights missing — falling back to classical OpenCV card detector. "
+                "Provide trained weights via --yolo-weights for rank/suit recognition."
+            )
+            dealing_zone = self._compute_dealing_zone(cfg.rois, cfg.player_slots, cfg.banker_slots)
+            self.classical_detector = ClassicalCardDetector(dealing_zone=dealing_zone)
         self.classifier = CardClassifier(
             weights_path=cfg.classification.model_path,
             num_classes=cfg.classification.num_classes,
@@ -134,6 +143,23 @@ class BaccaratPipeline:
         self.consensus.reset()
         self.motion.reset()
 
+    @staticmethod
+    def _compute_dealing_zone(rois, player_slots, banker_slots) -> ROI:
+        """Bounding rect that covers every slot ROI — used by the classical detector."""
+        all_slots = list(player_slots) + list(banker_slots)
+        xs = [c for s in all_slots if s in rois for c in (rois[s].x1, rois[s].x2)]
+        ys = [c for s in all_slots if s in rois for c in (rois[s].y1, rois[s].y2)]
+        if not xs or not ys:
+            return ROI("dealing_zone", 0.15, 0.55, 0.85, 0.85)
+        pad = 0.02
+        return ROI(
+            "dealing_zone",
+            x1=max(0.0, min(xs) - pad),
+            y1=max(0.0, min(ys) - pad),
+            x2=min(1.0, max(xs) + pad),
+            y2=min(1.0, max(ys) + pad),
+        )
+
     def run(self, max_frames: Optional[int] = None) -> None:
         log.info("baccarat vision AI starting")
         processed = 0
@@ -173,7 +199,12 @@ class BaccaratPipeline:
         shoe_motion = self.motion.has_motion("shoe", shoe_crop)
         cleanup_motion = self.motion.has_motion("cleanup", cleanup_crop)
 
-        detections = self.detector.predict(enhanced) if self.detector.ready else []
+        if self.detector.ready:
+            detections = self.detector.predict(enhanced)
+        elif self.classical_detector is not None:
+            detections = self.classical_detector.predict(enhanced)
+        else:
+            detections = []
         h, w = enhanced.shape[:2]
         slot_assignments = self.slot_mapper.assign(detections, w, h)
 
