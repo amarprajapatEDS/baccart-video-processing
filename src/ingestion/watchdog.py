@@ -1,4 +1,11 @@
-"""Stream health watchdog: monitors fps + socket health and triggers reconnects."""
+"""Stream health watchdog: monitors source liveness and triggers reconnects.
+
+Note: this watchdog is *only* about the source feed (can we still pull frames?
+is the reader silent?). Pipeline throughput — i.e. how fast we can process
+the frames we pull — is monitored separately by src.audit.telemetry.Telemetry.
+Conflating the two would mean every slow processing iteration looks like a
+network stall, which would spam STREAM_UNSTABLE events.
+"""
 from __future__ import annotations
 
 import logging
@@ -15,11 +22,14 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class WatchdogPolicy:
-    min_fps: float = 15.0
-    fps_window_s: float = 2.0
     max_silence_s: float = 2.0
     reconnect_backoff_s: float = 1.0
     reconnect_max_backoff_s: float = 8.0
+    # Retained for backward-compat (consumers may construct with these); not
+    # currently used to gate health. Pipeline-throughput monitoring lives in
+    # Telemetry.
+    min_fps: float = 15.0
+    fps_window_s: float = 2.0
 
 
 class StreamWatchdog:
@@ -39,7 +49,6 @@ class StreamWatchdog:
         self.factory = factory
         self.policy = policy or WatchdogPolicy()
         self.reader: Optional[object] = None
-        self._frame_times = []
         self._last_health = StreamHealth.DISCONNECTED
         self._backoff = self.policy.reconnect_backoff_s
         self._finished = False
@@ -64,18 +73,6 @@ class StreamWatchdog:
                 time.sleep(self._backoff)
                 self._backoff = min(self._backoff * 2, self.policy.reconnect_max_backoff_s)
 
-    def _record_frame_time(self, t: float) -> None:
-        cutoff = t - self.policy.fps_window_s
-        self._frame_times.append(t)
-        while self._frame_times and self._frame_times[0] < cutoff:
-            self._frame_times.pop(0)
-
-    def _current_fps(self) -> float:
-        if len(self._frame_times) < 2:
-            return 0.0
-        span = self._frame_times[-1] - self._frame_times[0]
-        return (len(self._frame_times) - 1) / span if span > 0 else 0.0
-
     def read(self) -> Optional[StreamFrame]:
         if self._finished:
             return None
@@ -84,7 +81,6 @@ class StreamWatchdog:
 
         assert self.reader is not None
         frame = self.reader.read()
-        now = time.monotonic()
 
         source_finished = bool(getattr(self.reader, "finished", False))
         source_is_finite = bool(getattr(self.reader, "is_finite", False))
@@ -94,7 +90,10 @@ class StreamWatchdog:
                 log.info("finite source exhausted — stopping watchdog")
                 self._finished = True
                 self._last_health = StreamHealth.DISCONNECTED
-                self.reader.release()
+                try:
+                    self.reader.release()
+                except Exception:
+                    pass
                 self.reader = None
                 return None
             log.warning("stream stalled or returned None — reconnecting")
@@ -107,14 +106,10 @@ class StreamWatchdog:
             self._connect()
             return None
 
-        self._record_frame_time(now)
-        fps = self._current_fps()
-        if fps and fps < self.policy.min_fps:
-            self._last_health = StreamHealth.DEGRADED
-            frame.health = StreamHealth.DEGRADED
-        else:
-            self._last_health = StreamHealth.HEALTHY
-            frame.health = StreamHealth.HEALTHY
+        # Successful read => source is HEALTHY. Slow pipeline iteration is NOT
+        # a stream issue; Telemetry handles throughput monitoring separately.
+        self._last_health = StreamHealth.HEALTHY
+        frame.health = StreamHealth.HEALTHY
         return frame
 
     @property

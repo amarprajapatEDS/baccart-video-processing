@@ -139,6 +139,51 @@ def test_watchdog_stops_immediately_on_unrecoverable_source():
     wd.release()
 
 
+def test_watchdog_stays_healthy_under_slow_pipeline_loop():
+    """A slow pipeline iteration must NOT make the watchdog flag the source as
+    degraded. Stream health is about the source, not pipeline throughput."""
+    import numpy as np
+    from src.ingestion.stream import StreamFrame, StreamHealth
+
+    class FastFileLikeReader:
+        is_finite = True
+        finished = False
+
+        def __init__(self):
+            self._seq = 0
+            self._last_ok = time.monotonic()
+
+        def read(self):
+            self._seq += 1
+            self._last_ok = time.monotonic()
+            return StreamFrame(
+                frame=np.zeros((64, 64, 3), dtype=np.uint8),
+                pts_ms=self._last_ok * 1000.0,
+                seq=self._seq,
+                captured_at_monotonic=self._last_ok,
+                health=StreamHealth.HEALTHY,
+            )
+
+        def is_alive(self, max_silence_s: float = 2.0) -> bool:
+            return (time.monotonic() - self._last_ok) <= max_silence_s
+
+        def release(self) -> None:
+            pass
+
+    wd = StreamWatchdog(factory=FastFileLikeReader, policy=WatchdogPolicy(min_fps=15.0))
+    try:
+        for _ in range(4):
+            f = wd.read()
+            assert f is not None, "frame should not be None on a healthy mock source"
+            assert f.health == StreamHealth.HEALTHY, (
+                f"slow pipeline loop incorrectly marked source as {f.health}"
+            )
+            time.sleep(0.25)  # ~4 FPS — would have tripped the old DEGRADED gate
+        assert wd.health == StreamHealth.HEALTHY
+    finally:
+        wd.release()
+
+
 if __name__ == "__main__":
     test_webp_reader_decodes_all_frames_in_order()
     test_webp_reader_loops_when_loop_true()
@@ -149,4 +194,5 @@ if __name__ == "__main__":
     test_build_source_missing_local_file_raises_unrecoverable()
     test_build_source_directory_as_source_raises_unrecoverable()
     test_watchdog_stops_immediately_on_unrecoverable_source()
+    test_watchdog_stays_healthy_under_slow_pipeline_loop()
     print("OK")
