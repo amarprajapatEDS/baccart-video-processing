@@ -15,6 +15,7 @@ import numpy as np
 from config import Config
 
 from src.audit import AsyncLogger, FailureHarvester, HarvestReason, Telemetry
+from src.capture import CardCropCapturer
 from src.classification import CardClassifier
 from src.detection import CardDetector, ClassicalCardDetector, SlotMapper
 from config import ROI
@@ -151,6 +152,7 @@ class BaccaratPipeline:
             show_metrics=cfg.visualization.show_metrics,
         )
         self.display = build_display(cfg)
+        self.capturer: Optional[CardCropCapturer] = None
 
     def _on_pipeline_restart(self) -> None:
         log.warning("inference fps below threshold — resetting pipeline state")
@@ -228,6 +230,10 @@ class BaccaratPipeline:
             detections = self.classical_detector.predict(enhanced)
         else:
             detections = []
+
+        # frame_seq counter is incremented in run() — we approximate it here
+        # from the telemetry ring length.
+        frame_seq = len(self.telemetry._ring) if hasattr(self.telemetry, "_ring") else 0
         h, w = enhanced.shape[:2]
         slot_assignments = self.slot_mapper.assign(detections, w, h)
 
@@ -339,6 +345,9 @@ class BaccaratPipeline:
         )
         annotated = self.overlay.draw(enhanced, ctx)
         self.display.show(annotated)
+
+        if self.capturer is not None:
+            self.capturer.capture(slot_assignments, enhanced, frame_seq)
 
     def _handle_transition(
         self,
@@ -454,6 +463,9 @@ class BaccaratPipeline:
 
     def shutdown(self) -> None:
         log.info("shutting down baccarat vision AI")
+        if self.capturer is not None:
+            log.info("captured %d card crops to %s",
+                     self.capturer.captured, self.capturer.output_dir)
         try:
             self.display.close()
         except Exception:

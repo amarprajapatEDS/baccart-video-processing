@@ -53,6 +53,14 @@ def parse_args() -> argparse.Namespace:
                    help="Motion-fraction threshold for the timer ROI "
                         "(default 0.015). Raise if the timer area has "
                         "compression noise; lower if digits are tiny.")
+    p.add_argument("--capture-crops", type=str, default=None,
+                   help="Directory to save per-slot card crops for later "
+                        "labeling. Crops go into <dir>/unlabeled/; use "
+                        "tools/label_card_crops.py to organize them into the "
+                        "rank/suit folders that train_classifier.py expects.")
+    p.add_argument("--capture-every", type=int, default=10,
+                   help="With --capture-crops, write crops every N frames "
+                        "(default 10). Higher values reduce disk usage.")
     p.add_argument("--display", type=str, default=None,
                    help="comma-separated: web,window,file,none  (default: web)")
     p.add_argument("--web-host", type=str, default=None,
@@ -144,6 +152,12 @@ def main() -> int:
         cfg.visualization.enabled = True
 
     pipeline = BaccaratPipeline(cfg)
+    if args.capture_crops:
+        from src.capture import CardCropCapturer
+        pipeline.capturer = CardCropCapturer(
+            output_dir=Path(args.capture_crops),
+            every_n_frames=args.capture_every,
+        )
     pipeline.run(max_frames=args.max_frames)
     return 0
 
